@@ -1,0 +1,21 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.env
+
+# Generated outputs
+outputs/images/
+outputs/panoramas/
+outputs/textures/
+outputs/sds/
+outputs/lora_weights/
+outputs/logs/
+
+# macOS
+.DS_Store
