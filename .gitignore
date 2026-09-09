@@ -10,7 +10,10 @@ build/
 .env
 
 # Generated outputs
-outputs/images/
+# outputs/images/ is tracked — the text2img samples are a few MB each and are
+# worth having in the repo. The rest stay ignored because they are large:
+# panoramas are 4096x2048, texture packs ship several maps per material, SDS
+# writes an intermediate every 100 iterations, and LoRA weights are binaries.
 outputs/panoramas/
 outputs/textures/
 outputs/sds/
