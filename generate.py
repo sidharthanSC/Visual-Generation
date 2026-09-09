@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 from pathlib import Path
 from datetime import datetime
 
@@ -93,6 +94,19 @@ def make_grid(images: list[Image.Image], cols: int = 2) -> Image.Image:
 
 # ─── Main generation function ─────────────────────────────────────────────────
 
+def max_batch_size(device) -> int:
+    """
+    Largest num_images_per_prompt to send through the UNet in one call.
+
+    Classifier-free guidance doubles the batch internally, so `num_images=2` is
+    really a batch of 4 at 1024x1024. On a 16 GB Mac that crosses the MPS memory
+    budget and the allocator starts swapping: measured on an M5, batch 1 runs at
+    5.9 s/step and batch 2 at 89.7 s/step — a 15x cliff, not a gradual slowdown.
+    Generating in chunks of 1 keeps every step on the fast side of that cliff.
+    """
+    return 1 if device.type == "mps" else 8
+
+
 def generate(cfg: GenerationConfig) -> list[Image.Image]:
     """
     Run text-to-image generation from a GenerationConfig.
@@ -106,17 +120,32 @@ def generate(cfg: GenerationConfig) -> list[Image.Image]:
     logger.info(f"Generating {cfg.num_images} image(s) | model={cfg.model}")
     logger.info(f"Prompt: {cfg.prompt}")
 
-    images = pipe(
-        prompt=cfg.prompt,
-        negative_prompt=cfg.negative_prompt,
-        width=cfg.width,
-        height=cfg.height,
-        num_inference_steps=cfg.num_inference_steps,
-        guidance_scale=cfg.guidance_scale,
-        seed=cfg.seed,
-        num_images_per_prompt=cfg.num_images,
-        **({"high_noise_frac": cfg.high_noise_frac} if cfg.model == "sdxl" else {}),
-    )
+    chunk = min(cfg.num_images, max_batch_size(get_device()))
+    if chunk < cfg.num_images:
+        logger.info(
+            f"Batching {cfg.num_images} images as {math.ceil(cfg.num_images / chunk)} "
+            f"call(s) of {chunk} to stay inside the device memory budget"
+        )
+
+    images: list[Image.Image] = []
+    done = 0
+    while done < cfg.num_images:
+        n = min(chunk, cfg.num_images - done)
+        # Offset the seed per chunk so each image differs but stays reproducible.
+        seed = None if cfg.seed is None else cfg.seed + done
+        images.extend(pipe(
+            prompt=cfg.prompt,
+            negative_prompt=cfg.negative_prompt,
+            width=cfg.width,
+            height=cfg.height,
+            num_inference_steps=cfg.num_inference_steps,
+            guidance_scale=cfg.guidance_scale,
+            seed=seed,
+            num_images_per_prompt=n,
+            **({"high_noise_frac": cfg.high_noise_frac} if cfg.model == "sdxl" else {}),
+        ))
+        done += n
+        free_memory()
 
     save_images(images, cfg.output_dir, cfg.output_prefix)
 

@@ -24,6 +24,8 @@ import numpy as np
 import torch
 from PIL import Image
 
+from pipeline import get_device, seed_generator
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,10 +76,9 @@ class LatentUpscaler:
         # Bicubic preupscale
         upsampled = image.resize((new_w, new_h), Image.BICUBIC)
 
-        generator = (
-            torch.Generator(device="cuda").manual_seed(seed)
-            if seed is not None and torch.cuda.is_available() else None
-        )
+        # Previously gated on torch.cuda.is_available(), which silently dropped
+        # the seed on MPS and made every Mac upscale non-reproducible.
+        generator = seed_generator(seed, get_device())
 
         result = self.pipe.base(
             prompt=prompt,
@@ -138,8 +139,7 @@ def tile_upscale(
         wx = np.hanning(tw)[None, :]
         return (wy * wx)[:, :, None]           # [th, tw, 1]
 
-    device  = "cuda" if torch.cuda.is_available() else "cpu"
-    gen     = torch.Generator(device=device).manual_seed(seed) if seed is not None else None
+    gen     = seed_generator(seed, get_device())
 
     logger.info(f"Tile upscale: {bh}×{bw} | {len(ys)*len(xs)} tiles")
 

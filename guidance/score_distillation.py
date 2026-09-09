@@ -26,6 +26,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from pipeline import get_device
+
 logger = logging.getLogger(__name__)
 
 
@@ -87,9 +89,14 @@ class SDSLoss:
         guidance_scale:  float          = 100.0,
         t_min:           float          = 0.02,
         t_max:           float          = 0.98,
-        device:          torch.device   = torch.device("cuda"),
-        vae_scale_factor: float         = 0.18215,
+        device:          Optional[torch.device] = None,
+        vae_scale_factor: Optional[float]        = None,
     ):
+        device = device or get_device()
+        # SDXL's VAE uses 0.13025, SD1.x/SD2 use 0.18215 — read it off the model
+        # rather than hardcoding, or SDXL latents come out scaled ~1.4x wrong.
+        if vae_scale_factor is None:
+            vae_scale_factor = getattr(getattr(vae, "config", None), "scaling_factor", 0.18215)
         self.unet              = unet
         self.scheduler         = scheduler
         self.vae               = vae

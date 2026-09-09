@@ -36,6 +36,7 @@ from torchvision import transforms
 from PIL import Image
 
 from config import LoRAConfig, SDXL_MODEL_ID, SD2_MODEL_ID
+from pipeline import get_device
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +176,7 @@ class LoRATrainer:
 
     def __init__(self, cfg: LoRAConfig):
         self.cfg    = cfg
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
 
     def _load_components(self):
         """Load tokeniser, text encoder, VAE, UNet, scheduler."""
@@ -293,9 +294,21 @@ class LoRATrainer:
                 pixels  = batch["pixel_values"].to(self.device)  # [B,3,H,W]
                 prompts = batch["prompt"]
 
-                with torch.cuda.amp.autocast(enabled=(cfg.mixed_precision == "fp16")):
+                use_amp = (
+                    cfg.mixed_precision in ("fp16", "bf16")
+                    and self.device.type == "cuda"
+                )
+                with torch.autocast(
+                    device_type=self.device.type,
+                    dtype=torch.bfloat16 if cfg.mixed_precision == "bf16" else torch.float16,
+                    enabled=use_amp,
+                ):
                     # ── Encode images to latents ──
-                    latents = self.vae.encode(pixels).latent_dist.sample() * 0.18215
+                    # SDXL's VAE scaling factor is 0.13025, not the 0.18215 that
+                    # SD1.x/SD2 use — read it off the model rather than hardcoding.
+                    latents = self.vae.encode(pixels).latent_dist.sample() * getattr(
+                        self.vae.config, "scaling_factor", 0.18215
+                    )
 
                     # ── Sample noise and timestep ──
                     noise = torch.randn_like(latents)

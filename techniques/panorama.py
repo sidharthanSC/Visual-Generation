@@ -29,6 +29,7 @@ import torch
 from PIL import Image
 
 from techniques.multidiffusion import MultiDiffusion, cosine_tile_weight
+from pipeline import decode_latents
 from config import PanoramaConfig, PANO_DIR
 
 logger = logging.getLogger(__name__)
@@ -149,9 +150,7 @@ class PanoramaGenerator(MultiDiffusion):
             latents   = scheduler.step(noise_avg, t, latents).prev_sample
 
         vae    = self.pipe.get_vae() if not is_sdxl else self.pipe.base.vae
-        latents = latents / 0.18215
-        image  = vae.decode(latents).sample
-        image  = (image / 2 + 0.5).clamp(0, 1)
+        image  = decode_latents(vae, latents)
         image  = image[0].cpu().permute(1, 2, 0).float().numpy()
         image  = (image * 255).round().astype("uint8")
         return Image.fromarray(image)

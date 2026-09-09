@@ -30,6 +30,8 @@ import torch.nn.functional as F
 from torch import Tensor
 from torchvision import transforms
 
+from pipeline import get_device
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,9 +92,9 @@ class CLIPAestheticReward:
         self,
         clip_model_name: str                 = "openai/clip-vit-large-patch14",
         mlp_ckpt_path:   Optional[str]       = None,
-        device:          torch.device        = torch.device("cuda"),
+        device:          Optional[torch.device] = None,
     ):
-        self.device = device
+        self.device = device or get_device()
 
         # ── Load CLIP ──
         try:
@@ -177,7 +179,8 @@ class LatentOptimiser:
         num_steps:       Number of latent gradient steps.
         lr:              Adam learning rate on the latent.
         reward_scale:    Weight of reward gradient vs. identity regularisation.
-        vae_scale:       VAE latent scale factor (0.18215 for SD/SDXL).
+        vae_scale:       VAE latent scale factor. Defaults to the VAE's own
+                         config value (0.13025 for SDXL, 0.18215 for SD1.x/SD2).
         device:          Compute device.
     """
 
@@ -188,16 +191,19 @@ class LatentOptimiser:
         num_steps:    int           = 5,
         lr:           float         = 0.05,
         reward_scale: float         = 0.15,
-        vae_scale:    float         = 0.18215,
-        device:       torch.device  = torch.device("cuda"),
+        vae_scale:    Optional[float] = None,
+        device:       Optional[torch.device] = None,
     ):
         self.vae          = vae
         self.reward_fn    = reward_fn
         self.num_steps    = num_steps
         self.lr           = lr
         self.reward_scale = reward_scale
-        self.vae_scale    = vae_scale
-        self.device       = device
+        self.vae_scale    = (
+            vae_scale if vae_scale is not None
+            else getattr(vae.config, "scaling_factor", 0.18215)
+        )
+        self.device       = device or get_device()
 
         # Keep decoder gradients enabled but freeze encoder/other parts
         for p in self.vae.parameters():
@@ -287,8 +293,10 @@ def reward_guided_generation(
 
     # ── Step 3: decode ──
     with torch.no_grad():
-        image_tensor = pipe.base.vae.decode(
-            latent_opt_result / 0.18215
+        vae = pipe.base.vae
+        image_tensor = vae.decode(
+            latent_opt_result.to(vae.dtype)
+            / getattr(vae.config, "scaling_factor", 0.18215)
         ).sample                                  # [1,3,H,W] in [-1,1]
 
     image_np = ((image_tensor[0].cpu().permute(1, 2, 0).numpy() + 1) / 2 * 255).clip(0, 255).astype("uint8")

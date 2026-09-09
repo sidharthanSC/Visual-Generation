@@ -124,8 +124,9 @@ class ControlNetWrapper:
 
     def __init__(self, cfg: ControlNetConfig):
         self.cfg    = cfg
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.dtype  = torch.float16 if self.device.type == "cuda" else torch.float32
+        from pipeline import get_device, get_dtype
+        self.device = get_device()
+        self.dtype  = get_dtype(self.device)
         self.pipe   = None
         self._load()
 
@@ -159,10 +160,11 @@ class ControlNetWrapper:
 
         self.pipe.scheduler = UniPCMultistepScheduler.from_config(self.pipe.scheduler.config)
 
-        try:
-            self.pipe.enable_xformers_memory_efficient_attention()
-        except Exception:
-            pass
+        if self.device.type == "cuda":
+            try:
+                self.pipe.enable_xformers_memory_efficient_attention()
+            except Exception:
+                pass
 
     def __call__(
         self,

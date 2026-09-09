@@ -25,6 +25,8 @@ import torch.nn.functional as F
 from torch import Tensor
 from PIL import Image
 
+from pipeline import decode_latents
+
 logger = logging.getLogger(__name__)
 
 
@@ -238,11 +240,9 @@ class MultiDiffusion:
         # ── Decode ──
         logger.info("Decoding final latent …")
         vae = self.pipe.get_vae() if not is_sdxl else self.pipe.base.vae
-        latents = latents / 0.18215
-        image   = vae.decode(latents).sample                          # [1,3,H,W]
+        image = decode_latents(vae, latents)                          # [1,3,H,W] in [0,1]
 
         # Convert to PIL
-        image = (image / 2 + 0.5).clamp(0, 1)
         image = image[0].cpu().permute(1, 2, 0).float().numpy()
         image = (image * 255).round().astype("uint8")
         return Image.fromarray(image)

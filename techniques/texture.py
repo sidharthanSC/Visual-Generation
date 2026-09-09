@@ -31,6 +31,8 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
+from pipeline import decode_latents
+
 logger = logging.getLogger(__name__)
 
 
@@ -132,9 +134,8 @@ class SeamlessTextureGenerator:
 
         # Decode
         vae = self.pipe.base.vae if is_sdxl else self.pipe.get_vae()
-        image = vae.decode(latents / 0.18215).sample   # [1,3,H,W]
-        image = (image / 2 + 0.5).clamp(0, 1)
-        image = image[0].cpu().permute(1, 2, 0).numpy()
+        image = decode_latents(vae, latents)           # [1,3,H,W] in [0,1]
+        image = image[0].cpu().permute(1, 2, 0).float().numpy()
         image = (image * 255).round().astype("uint8")
         pil   = Image.fromarray(image)
 
